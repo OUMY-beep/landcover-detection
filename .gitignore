@@ -1,0 +1,28 @@
+# Virtual Environment
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# VS Code
+.vscode/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Outputs
+outputs/models/
+outputs/predictions/
+outputs/reports/
+outputs/figures/
+outputs/metrics/
+
+# Dataset
+data/
+
+# Logs
+*.log
+
+# Environment
+.env

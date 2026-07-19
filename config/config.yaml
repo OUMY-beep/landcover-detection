@@ -1,0 +1,19 @@
+project:
+  name: satellite-landcover-ai
+  dataset: LoveDA
+
+paths:
+  raw_data: data/raw/loveda
+  processed_data: data/processed
+  splits: data/splits
+  models: outputs/models
+  predictions: outputs/predictions
+  reports: outputs/reports
+  figures: outputs/figures
+  metrics: outputs/metrics
+
+training:
+  batch_size: 8
+  num_epochs: 50
+  learning_rate: 0.0001
+  image_size: 512
