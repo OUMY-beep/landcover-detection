@@ -16,7 +16,7 @@ from dataset import LoveDADataset
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_ROOT = PROJECT_ROOT / "data" / "splits"
 
-BATCH_SIZE = 32
+BATCH_SIZE = 4
 NUM_WORKERS = 0  # subprocesses for parallel loading
 
 SPLITS = ("train", "test", "val")
