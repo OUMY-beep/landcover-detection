@@ -64,9 +64,16 @@ def iou_per_class(intersection: torch.Tensor, union: torch.Tensor) -> torch.Tens
     return iou
 
 
-def mean_iou(iou: torch.Tensor) -> float:
-    """Mean IoU across classes present in the accumulated data (ignores NaN)."""
+def mean_iou(iou: torch.Tensor, exclude_classes: list[int] = None) -> float:
+    """Mean IoU across classes present in the accumulated data (ignores NaN and excluded classes)."""
+    if exclude_classes is None:
+        exclude_classes = [7]
+        
     valid = ~torch.isnan(iou)
+    for c in exclude_classes:
+        if c < len(valid):
+            valid[c] = False
+            
     return iou[valid].mean().item() if valid.any() else 0.0
 
 
@@ -80,7 +87,14 @@ def dice_per_class(intersection: torch.Tensor, union: torch.Tensor) -> torch.Ten
     return dice
 
 
-def mean_dice(dice: torch.Tensor) -> float:
-    """Mean Dice across classes present in the accumulated data (ignores NaN)."""
+def mean_dice(dice: torch.Tensor, exclude_classes: list[int] = None) -> float:
+    """Mean Dice across classes present in the accumulated data (ignores NaN and excluded classes)."""
+    if exclude_classes is None:
+        exclude_classes = [7]
+        
     valid = ~torch.isnan(dice)
+    for c in exclude_classes:
+        if c < len(valid):
+            valid[c] = False
+            
     return dice[valid].mean().item() if valid.any() else 0.0

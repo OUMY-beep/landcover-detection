@@ -27,12 +27,13 @@ from training.metrics import (
     mean_iou,
     pixel_accuracy,
 )
+from training.losses import CEDiceLoss
 
 # ============================================================
 # Config
 # ============================================================
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-NUM_EPOCHS = 20
+NUM_EPOCHS = 90
 LEARNING_RATE = 6e-5  # lower than U-Net: fine-tuning a pretrained transformer backbone
 WEIGHT_DECAY = 1e-2
 GRAD_CLIP_NORM = 1.0  # max gradient norm; None to disable
@@ -118,7 +119,7 @@ def main():
     print(f"Using device: {DEVICE}")
 
     model = SegFormer(num_classes=NUM_CLASSES).to(DEVICE)
-    criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
+    criterion = CEDiceLoss(ignore_index=IGNORE_INDEX)
     optimizer = AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
     train_loader = loaders["train"]

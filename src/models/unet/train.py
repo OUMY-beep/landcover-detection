@@ -27,12 +27,13 @@ from training.metrics import (
     mean_iou,
     pixel_accuracy,
 )
+from training.losses import CEDiceLoss
 
 # ============================================================
 # Config
 # ============================================================
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-NUM_EPOCHS = 20
+NUM_EPOCHS = 35
 LEARNING_RATE = 1e-4
 GRAD_CLIP_NORM = 1.0  # max gradient norm; None to disable
 CHECKPOINT_DIR = SRC_ROOT.parent / "outputs" / "checkpoints"
@@ -117,7 +118,7 @@ def main():
     print(f"Using device: {DEVICE}")
 
     model = UNet(n_channels=3, n_classes=NUM_CLASSES, bilinear=True).to(DEVICE)
-    criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
+    criterion = CEDiceLoss(ignore_index=IGNORE_INDEX)
     optimizer = Adam(model.parameters(), lr=LEARNING_RATE)
 
     train_loader = loaders["train"]

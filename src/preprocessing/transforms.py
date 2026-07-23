@@ -16,8 +16,15 @@ from torchvision.transforms import v2
 from torchvision.transforms.v2 import functional as F
 from torchvision.transforms.v2 import InterpolationMode
 
+import yaml
+from pathlib import Path
+
+config_path = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
+with open(config_path, "r") as f:
+    config = yaml.safe_load(f)
+
 # --- Constants ---
-IMAGE_SIZE = (512, 512)
+IMAGE_SIZE = (config["training"]["image_size"], config["training"]["image_size"])
 ROTATION = 30
 HORIZONTAL_FLIP_PROB = 0.5
 VERTICAL_FLIP_PROB = 0.5
@@ -122,7 +129,8 @@ test_joint_transform = v2.Compose([
 #    Never applied to the mask.
 # ============================================================
 train_image_transform = v2.Compose([
-    v2.ColorJitter(brightness=COLOR_JITTER, contrast=COLOR_JITTER, saturation=COLOR_JITTER),
+    v2.ColorJitter(brightness=COLOR_JITTER, contrast=COLOR_JITTER, saturation=COLOR_JITTER, hue=0.1),
+    v2.RandomApply([v2.GaussianBlur(kernel_size=(5, 9), sigma=(0.1, 5.0))], p=0.3),
     v2.ToImage(),
     v2.ToDtype(torch.float32, scale=True),
     v2.Normalize(mean=MEAN, std=STD),
