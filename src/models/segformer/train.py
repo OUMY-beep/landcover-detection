@@ -179,20 +179,12 @@ def main():
         print("Missing keys:", len(missing))
         print("Unexpected keys:", len(unexpected))
         
-        try:
-            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        except ValueError as e:
-            print(f"Warning: Could not load optimizer state ({e}). Starting optimizer from scratch.")
-        except Exception as e:
-            print(f"Warning: Could not load optimizer state ({e}). Starting optimizer from scratch.")
+        print("Skipping optimizer state restore (architecture changed).")
             
         start_epoch = checkpoint["epoch"] + 1
         best_val_miou = checkpoint.get("val_miou", -1.0)
         
-        if "scheduler_state_dict" in checkpoint:
-            scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        else:
-            scheduler.last_epoch = start_epoch - 1
+        scheduler.last_epoch = start_epoch - 1
             
         epochs_no_improve = checkpoint.get("epochs_no_improve", 0)
         
