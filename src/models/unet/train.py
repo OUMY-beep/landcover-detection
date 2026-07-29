@@ -37,7 +37,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 NUM_EPOCHS = 35
 LEARNING_RATE = 1e-4
 GRAD_CLIP_NORM = 1.0  # max gradient norm; None to disable
-CHECKPOINT_DIR = SRC_ROOT.parent / "outputs" / "checkpoints"
+CHECKPOINT_DIR = SRC_ROOT.parent / "outputs" / "models"
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 BEST_CHECKPOINT_PATH = CHECKPOINT_DIR / "unet_best.pth"
 LAST_CHECKPOINT_PATH = CHECKPOINT_DIR / "unet_last.pth"
@@ -138,6 +138,14 @@ def main():
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = checkpoint["epoch"] + 1
         best_val_miou = checkpoint.get("val_miou", -1.0)
+        
+        if "scheduler_state_dict" in checkpoint:
+            scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        else:
+            scheduler.last_epoch = start_epoch - 1
+            
+        epochs_no_improve = checkpoint.get("epochs_no_improve", 0)
+        
         print(f"Resuming from epoch {start_epoch}")
 
     for epoch in range(start_epoch, NUM_EPOCHS):
@@ -161,8 +169,10 @@ def main():
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
                 "val_loss": val_loss,
                 "val_miou": val_miou,
+                "epochs_no_improve": epochs_no_improve,
             },
             LAST_CHECKPOINT_PATH,
         )
@@ -175,8 +185,10 @@ def main():
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
                     "val_loss": val_loss,
                     "val_miou": val_miou,
+                    "epochs_no_improve": epochs_no_improve,
                 },
                 BEST_CHECKPOINT_PATH,
             )
