@@ -178,7 +178,14 @@ def main():
         )
         print("Missing keys:", len(missing))
         print("Unexpected keys:", len(unexpected))
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        
+        try:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        except ValueError as e:
+            print(f"Warning: Could not load optimizer state ({e}). Starting optimizer from scratch.")
+        except Exception as e:
+            print(f"Warning: Could not load optimizer state ({e}). Starting optimizer from scratch.")
+            
         start_epoch = checkpoint["epoch"] + 1
         best_val_miou = checkpoint.get("val_miou", -1.0)
         
