@@ -135,7 +135,49 @@ def main():
     if BEST_CHECKPOINT_PATH.exists():
         print(f"Loading checkpoint: {BEST_CHECKPOINT_PATH}")
         checkpoint = torch.load(BEST_CHECKPOINT_PATH, map_location=DEVICE)
-        model.load_state_dict(checkpoint["model_state_dict"])
+        
+        # Migrate older HF transformers keys (encoder) to newer keys (stages) if needed
+        migrated_state_dict = {}
+        for k, v in checkpoint["model_state_dict"].items():
+            new_k = k
+            if "encoder.patch_embeddings." in k:
+                parts = k.split("encoder.patch_embeddings.")
+                sub_parts = parts[1].split(".", 1)
+                new_k = f"{parts[0]}stages.{sub_parts[0]}.patch_embeddings.{sub_parts[1]}"
+            elif "encoder.block." in k:
+                parts = k.split("encoder.block.")
+                sub_parts = parts[1].split(".", 2)
+                stage_idx, block_idx, rest = sub_parts[0], sub_parts[1], sub_parts[2]
+                rest = rest.replace("layer_norm_1", "layernorm_before")
+                rest = rest.replace("layer_norm_2", "layernorm_after")
+                rest = rest.replace("attention.self.query", "attention.q_proj")
+                rest = rest.replace("attention.self.key", "attention.k_proj")
+                rest = rest.replace("attention.self.value", "attention.v_proj")
+                rest = rest.replace("attention.self.sr", "attention.sequence_reduction.sequence_reduction")
+                rest = rest.replace("attention.self.layer_norm", "attention.sequence_reduction.layer_norm")
+                rest = rest.replace("attention.output.dense", "attention.o_proj")
+                rest = rest.replace("mlp.dense1", "mlp.fc1")
+                rest = rest.replace("mlp.dense2", "mlp.fc2")
+                new_k = f"{parts[0]}stages.{stage_idx}.blocks.{block_idx}.{rest}"
+            elif "encoder.layer_norm." in k:
+                parts = k.split("encoder.layer_norm.")
+                sub_parts = parts[1].split(".", 1)
+                new_k = f"{parts[0]}stages.{sub_parts[0]}.layer_norm.{sub_parts[1]}"
+            elif "decode_head.linear_c." in k:
+                new_k = k.replace("decode_head.linear_c.", "decode_head.linear_projections.")
+                
+            # Skip ADE20K 150-class classifier
+            if "decode_head.classifier" in new_k:
+                continue
+
+            migrated_state_dict[new_k] = v
+            
+        missing, unexpected = model.load_state_dict(
+            migrated_state_dict,
+            strict=False
+        )
+        print("Missing keys:", len(missing))
+        print("Unexpected keys:", len(unexpected))
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = checkpoint["epoch"] + 1
         best_val_miou = checkpoint.get("val_miou", -1.0)
