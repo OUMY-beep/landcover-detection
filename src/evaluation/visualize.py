@@ -16,8 +16,8 @@ sys.path.append(str(SRC_ROOT))
 from preprocessing.transforms import MEAN, NUM_CLASSES, STD
 
 CLASS_NAMES = [
-    "Background", "Building", "Road", "Water",
-    "Barren", "Forest", "Agricultural", "Classe 7",
+    "Ignore", "Background", "Building", "Road", "Water",
+    "Barren", "Forest", "Agricultural",
 ]
 CLASS_COLORS = plt.cm.tab10(np.linspace(0, 1, NUM_CLASSES))
 MASK_CMAP = ListedColormap(CLASS_COLORS)
@@ -89,9 +89,9 @@ def show_batch_predictions(images, masks, predictions, num_samples: int = 3) -> 
 
 if __name__ == "__main__":
     from dataset.loader import loaders
-    from evaluation.predict import load_model, predict_dataset
+    from evaluation.predict import load_unet, predict_dataset
 
-    model = load_model()
+    model = load_unet()
     test_loader = loaders["test"]
 
     images, masks, predictions = next(predict_dataset(model, test_loader))

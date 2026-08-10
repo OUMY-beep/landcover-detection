@@ -72,8 +72,8 @@ from training.metrics import (
 
 # ── Constantes ────────────────────────────────────────────────────────────────
 CLASS_NAMES = [
-    "Background", "Building", "Road", "Water",
-    "Barren", "Forest", "Agricultural", "Classe 7",
+    "Ignore", "Background", "Building", "Road", "Water",
+    "Barren", "Forest", "Agricultural",
 ]
 
 CRITERION    = nn.CrossEntropyLoss(ignore_index=255)

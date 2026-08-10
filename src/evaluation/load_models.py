@@ -87,6 +87,55 @@ def migrate_segformer_keys(state_dict: dict) -> dict:
     return new_sd
 
 
+def migrate_segformer_keys_reverse(state_dict: dict) -> dict:
+    """
+    Migre les clés du nouveau format (utilisant `stages`)
+    vers l'ancien format `transformers` (utilisant `encoder`).
+    Utile si le checkpoint a été sauvegardé avec le nouveau format
+    mais que le modèle attend l'ancien format.
+    """
+    # Vérification rapide : si l'ancien format est déjà là, on ne touche à rien
+    if any(k.startswith("model.segformer.encoder.") for k in state_dict.keys()):
+        return state_dict
+
+    new_sd = {}
+    for k, v in state_dict.items():
+        if "stages.0.patch_embeddings." in k: k = k.replace("stages.0.patch_embeddings.", "encoder.patch_embeddings.0.")
+        elif "stages.1.patch_embeddings." in k: k = k.replace("stages.1.patch_embeddings.", "encoder.patch_embeddings.1.")
+        elif "stages.2.patch_embeddings." in k: k = k.replace("stages.2.patch_embeddings.", "encoder.patch_embeddings.2.")
+        elif "stages.3.patch_embeddings." in k: k = k.replace("stages.3.patch_embeddings.", "encoder.patch_embeddings.3.")
+        
+        elif "stages.0.blocks." in k: k = k.replace("stages.0.blocks.", "encoder.block.0.")
+        elif "stages.1.blocks." in k: k = k.replace("stages.1.blocks.", "encoder.block.1.")
+        elif "stages.2.blocks." in k: k = k.replace("stages.2.blocks.", "encoder.block.2.")
+        elif "stages.3.blocks." in k: k = k.replace("stages.3.blocks.", "encoder.block.3.")
+        
+        elif "stages.0.layer_norm." in k: k = k.replace("stages.0.layer_norm.", "encoder.layer_norm.0.")
+        elif "stages.1.layer_norm." in k: k = k.replace("stages.1.layer_norm.", "encoder.layer_norm.1.")
+        elif "stages.2.layer_norm." in k: k = k.replace("stages.2.layer_norm.", "encoder.layer_norm.2.")
+        elif "stages.3.layer_norm." in k: k = k.replace("stages.3.layer_norm.", "encoder.layer_norm.3.")
+
+        if "linear_projections." in k:
+            k = k.replace("linear_projections.", "linear_c.")
+            
+        k = k.replace("attention.q_proj", "attention.self.query")
+        k = k.replace("attention.k_proj", "attention.self.key")
+        k = k.replace("attention.v_proj", "attention.self.value")
+        k = k.replace("attention.sequence_reduction.sequence_reduction", "attention.self.sr")
+        k = k.replace("attention.sequence_reduction.layer_norm", "attention.self.layer_norm")
+        k = k.replace("attention.o_proj", "attention.output.dense")
+        
+        k = k.replace("layernorm_before", "layer_norm_1")
+        k = k.replace("layernorm_after", "layer_norm_2")
+        
+        k = k.replace("mlp.fc1", "mlp.dense1")
+        k = k.replace("mlp.fc2", "mlp.dense2")
+        
+        new_sd[k] = v
+
+    return new_sd
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Fonctions publiques
 # ─────────────────────────────────────────────────────────────────────────────
@@ -155,9 +204,22 @@ def load_segformer(
     state_dict = checkpoint.get("model_state_dict", checkpoint)
     
     # Migration des clés si nécessaire (anciennes versions de transformers)
-    state_dict = migrate_segformer_keys(state_dict)
-
-    model.load_state_dict(state_dict)
+    # Essayer d'abord la migration forward, puis reverse si ça échoue
+    try:
+        migrated_state = migrate_segformer_keys(state_dict)
+        model.load_state_dict(migrated_state)
+    except RuntimeError:
+        # Si la migration forward échoue, essayer la reverse
+        try:
+            migrated_state = migrate_segformer_keys_reverse(state_dict)
+            model.load_state_dict(migrated_state)
+        except RuntimeError as e:
+            raise RuntimeError(
+                f"Failed to load SegFormer checkpoint with both forward and reverse key migration.\n"
+                f"Checkpoint keys: {list(state_dict.keys())[:5]}...\n"
+                f"Model keys: {list(model.state_dict().keys())[:5]}...\n"
+                f"Error: {e}"
+            )
 
     model.to(device)
     model.eval()

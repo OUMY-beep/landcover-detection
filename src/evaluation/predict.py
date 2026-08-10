@@ -50,8 +50,8 @@ from preprocessing.transforms import MEAN, NUM_CLASSES, STD
 
 # ── Couleurs et noms de classes ───────────────────────────────────────────────
 CLASS_NAMES = [
-    "Background", "Building", "Road", "Water",
-    "Barren",     "Forest",   "Agricultural", "Classe 7",
+    "Ignore", "Background", "Building", "Road", "Water",
+    "Barren",     "Forest",   "Agricultural",
 ]
 
 # Palette tab10 (reproductible)
