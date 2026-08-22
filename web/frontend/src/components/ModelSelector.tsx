@@ -1,6 +1,6 @@
 import { Cpu } from 'lucide-react';
 
-type ModelType = 'unet' | 'segformer' | 'compare';
+type ModelType = 'unet' | 'segformer' | 'ensemble' | 'compare';
 
 interface ModelSelectorProps {
   selectedModel: ModelType;
@@ -38,6 +38,18 @@ export function ModelSelector({ selectedModel, onSelect }: ModelSelectorProps) {
         >
           <div className="font-medium">SegFormer</div>
           <div className="text-xs opacity-80">Transformer-based</div>
+        </button>
+
+        <button
+          onClick={() => onSelect('ensemble')}
+          className={`px-4 py-2 rounded-lg text-left transition-colors ${
+            selectedModel === 'ensemble'
+              ? 'bg-green-500 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+          }`}
+        >
+          <div className="font-medium">Ensemble</div>
+          <div className="text-xs opacity-80">UNet + SegFormer combined</div>
         </button>
 
         <button

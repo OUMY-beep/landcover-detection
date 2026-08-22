@@ -26,3 +26,8 @@ data/
 
 # Environment
 .env
+SegEarth-OV/
+
+outputs/
+
+tmp_test.tif

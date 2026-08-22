@@ -1,4 +1,22 @@
-const API_BASE = 'http://localhost:5000/api';
+import { API_BASE } from './config';
+
+async function readErrorMessage(response: Response, fallback: string): Promise<string> {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    const data = await response.json().catch(() => ({}));
+    if (data && typeof data.error === 'string' && data.error.trim()) {
+      return data.error;
+    }
+  }
+
+  const bodyText = await response.text().catch(() => '');
+  if (bodyText.trim()) {
+    return `${fallback} (HTTP ${response.status} ${response.statusText}): ${bodyText.slice(0, 200)}`;
+  }
+
+  return `${fallback} (HTTP ${response.status} ${response.statusText})`;
+}
 
 export async function fetchImages(): Promise<string[]> {
   const response = await fetch(`${API_BASE}/images`);
@@ -63,8 +81,7 @@ export async function uploadPreview(file: File): Promise<Blob> {
     body: formData,
   });
   if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new Error(data.error || 'Failed to upload image');
+    throw new Error(await readErrorMessage(response, 'Failed to upload image'));
   }
   return response.blob();
 }
@@ -73,19 +90,26 @@ export async function uploadAndPredict(
   file: File,
   model: string,
   postprocess = false,
+  tta = false,
+  advanced = false,
+  apiVerify = false,
+  backgroundVerify = false,
 ): Promise<Blob> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('model', model);
   formData.append('postprocess', String(postprocess));
+  formData.append('tta', String(tta));
+  formData.append('advanced', String(advanced));
+  formData.append('api_verify', String(apiVerify));
+  formData.append('background_verify', String(backgroundVerify));
 
   const response = await fetch(`${API_BASE}/predict/upload`, {
     method: 'POST',
     body: formData,
   });
   if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new Error(data.error || 'Failed to run segmentation');
+    throw new Error(await readErrorMessage(response, 'Failed to run segmentation'));
   }
   return response.blob();
 }

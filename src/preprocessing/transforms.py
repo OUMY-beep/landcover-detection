@@ -3,6 +3,7 @@ Transforms used for LoveDA semantic segmentation.
 
 Images:
     RGB, normalized (ImageNet stats), augmented (train only)
+    Enhanced with CLAHE and sharpening for better contrast
 
 Masks:
     class indices (0-7), never normalized, nearest-neighbor interpolation only
@@ -10,8 +11,9 @@ Masks:
 
 import random
 
+import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 from torchvision.transforms import v2
 from torchvision.transforms.v2 import functional as F
 from torchvision.transforms.v2 import InterpolationMode
@@ -36,6 +38,104 @@ STD = [0.229, 0.224, 0.225]
 NUM_CLASSES = 8
 IGNORE_INDEX = 255
 
+# Image enhancement parameters - DISABLED for inference to avoid train-test mismatch
+# Models were not trained on enhanced images, so we should not enhance during inference
+USE_CLAHE = False
+CLAHE_CLIP_LIMIT = 2.0
+CLAHE_TILE_SIZE = 8
+USE_SHARPENING = False
+SHARPENING_FACTOR = 1.3
+
+
+def apply_clahe(image: Image.Image) -> Image.Image:
+    """
+    Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) to enhance image contrast.
+    
+    CLAHE improves local contrast while avoiding noise amplification, particularly
+    useful for satellite images with varying lighting conditions.
+    
+    Args:
+        image: PIL Image to enhance
+        
+    Returns:
+        Enhanced PIL Image
+    """
+    if not USE_CLAHE:
+        return image
+    
+    try:
+        import cv2
+        import numpy as np
+        # Convert to LAB color space for better results
+        img_array = np.array(image.convert("RGB"))
+        lab = cv2.cvtColor(img_array, cv2.COLOR_RGB2LAB)
+        
+        # Apply CLAHE to L channel
+        clahe = cv2.createCLAHE(clipLimit=CLAHE_CLIP_LIMIT, tileGridSize=(CLAHE_TILE_SIZE, CLAHE_TILE_SIZE))
+        lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+        
+        # Convert back to RGB
+        enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+        return Image.fromarray(enhanced)
+    except (ImportError, Exception) as e:
+        # Fallback to PIL's contrast enhancement if cv2 fails
+        try:
+            from PIL import ImageEnhance
+            enhancer = ImageEnhance.Contrast(image)
+            return enhancer.enhance(1.2)  # 20% contrast boost
+        except:
+            return image
+
+
+def apply_sharpening(image: Image.Image) -> Image.Image:
+    """
+    Apply sharpening to enhance image details and edges.
+    
+    Useful for satellite images where fine details like roads and buildings
+    need to be more pronounced.
+    
+    Args:
+        image: PIL Image to enhance
+        
+    Returns:
+        Sharpened PIL Image
+    """
+    if not USE_SHARPENING:
+        return image
+    
+    try:
+        enhancer = ImageEnhance.Sharpness(image)
+        return enhancer.enhance(SHARPENING_FACTOR)
+    except Exception:
+        return image
+
+
+def enhance_image(image: Image.Image) -> Image.Image:
+    """
+    Apply full image enhancement pipeline.
+    
+    Args:
+        image: PIL Image to enhance
+        
+    Returns:
+        Enhanced PIL Image
+    """
+    # Apply CLAHE for contrast enhancement
+    enhanced = apply_clahe(image)
+    
+    # Apply sharpening for detail enhancement
+    enhanced = apply_sharpening(enhanced)
+    
+    return enhanced
+
+# Image enhancement parameters - DISABLED for inference to avoid train-test mismatch
+# Models were not trained on enhanced images, so we should not enhance during inference
+USE_CLAHE = False
+CLAHE_CLIP_LIMIT = 2.0
+CLAHE_TILE_SIZE = 8
+USE_SHARPENING = False
+SHARPENING_FACTOR = 1.3
+
 
 class ResizeImageAndMask:
     """
@@ -47,7 +147,7 @@ class ResizeImageAndMask:
         self.size = size
 
     def __call__(self, image: Image.Image, mask: Image.Image):
-        image = F.resize(image, self.size, interpolation=InterpolationMode.BILINEAR, antialias=True)
+        image = F.resize(image, self.size, interpolation=InterpolationMode.BICUBIC, antialias=True)
         mask = F.resize(mask, self.size, interpolation=InterpolationMode.NEAREST)
         return image, mask
 

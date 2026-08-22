@@ -30,6 +30,8 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, request, send_file
 from flask_cors import CORS
 from PIL import Image
+import torch
+import numpy as np
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BACKEND_DIR  = Path(__file__).resolve().parent
@@ -57,6 +59,9 @@ from inference import (
     serve_pil_image,
     serve_raw_image,
 )
+from tta import TestTimeAugmentation, ensemble_models
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024  # 500 MB
@@ -130,10 +135,19 @@ def predict_upload():
         }), 400
 
     model = request.form.get("model", "unet")
-    if model not in ("unet", "segformer"):
+    if model not in ("unet", "segformer", "ensemble"):
         return jsonify({"error": f"Unknown model: {model}"}), 400
 
-    postprocess = request.form.get("postprocess", "false").lower() == "true"
+    postprocess = request.form.get("postprocess", "true").lower() == "true"  # Default to true
+    use_tta = request.form.get("tta", "true").lower() == "true"  # Default to true for better quality
+    use_advanced_tta = request.form.get("advanced_tta", "false").lower() == "true"  # Advanced TTA (slower but better)
+    use_advanced = request.form.get("advanced", "true").lower() == "true"  # Default to true
+    use_crf = request.form.get("crf", "true").lower() == "true"  # Default to true
+    confidence_threshold = float(request.form.get("confidence_threshold", "0.6"))  # Default 0.6
+    use_multi_scale = request.form.get("multi_scale", "true").lower() == "true"  # Multi-scale for complex images
+    temperature = float(request.form.get("temperature", "0.8"))  # Default 0.8 for sharper predictions
+    use_api_verify = request.form.get("api_verify", "false").lower() == "true"
+    use_background_verify = request.form.get("background_verify", "false").lower() == "true"
 
     raw = uploaded.read()
     if len(raw) > MAX_UPLOAD_BYTES:
@@ -148,7 +162,56 @@ def predict_upload():
         return jsonify({"error": f"Could not read image file: {str(e)}"}), 400
 
     try:
-        pred = predict_from_image(model, img, postprocess=postprocess)
+        if model == "ensemble":
+            from inference import get_model
+            unet_model = get_model("unet")
+            segformer_model = get_model("segformer")
+            pred = ensemble_models(
+                [unet_model, segformer_model], img, DEVICE,
+                weights=[0.5, 0.5], use_tta=use_tta, use_advanced_tta=use_advanced_tta,
+                voting_method="weighted"  # Use weighted voting for better complex scene performance
+            )
+            # Apply post-processing to ensemble result as well
+            if postprocess:
+                from postprocessing.morphology import apply_morphology
+                pred = apply_morphology(pred, road_class=3, building_class=2, background_class=1, max_hole_size=64)
+            
+            # Apply background cleanup to ensemble if advanced is enabled
+            if use_advanced:
+                try:
+                    from postprocessing.advanced import apply_background_cleanup
+                    pred = apply_background_cleanup(img, pred, background_class=1, min_region_size=100)
+                except Exception as e:
+                    print(f"Background cleanup for ensemble failed: {e}")
+        elif use_tta:
+            from inference import get_model
+            model_instance = get_model(model)
+            tta = TestTimeAugmentation(model_instance, DEVICE)
+            pred = tta.predict_with_tta(img, num_classes=len(CLASS_NAMES))
+        else:
+            # Enable CRF and advanced post-processing by default
+            pred = predict_from_image(
+                model, 
+                img, 
+                postprocess=postprocess,  # Enable morphology
+                use_crf=use_crf,          # Enable CRF post-processing
+                use_advanced=use_advanced,  # Enable advanced post-processing
+                confidence_threshold=confidence_threshold,  # Set confidence threshold
+                use_multi_scale=use_multi_scale,  # Enable multi-scale for complex images
+                temperature=temperature  # Apply temperature scaling for sharper predictions
+            )
+
+        if use_api_verify or use_background_verify:
+            from postprocessing.advanced import (
+                verify_background_with_segearth,
+                verify_segmentation_with_segearth,
+            )
+
+            if use_api_verify:
+                pred = verify_segmentation_with_segearth(img, pred)
+            if use_background_verify:
+                pred = verify_background_with_segearth(img, pred)
+
         png_bytes = colorize_mask(pred)
         return Response(png_bytes, mimetype="image/png")
     except Exception as e:
@@ -199,9 +262,23 @@ def get_image_metrics(model: str, filename: str):
     if not mask_path.exists():
         return jsonify({"error": f"Mask not found: {filename}"}), 404
 
-    postprocess = request.args.get("postprocess", "false").lower() == "true"
+    postprocess = request.args.get("postprocess", "true").lower() == "true"  # Default to true
+    use_crf = request.args.get("use_crf", "true").lower() == "true"  # Default to true
+    use_advanced = request.args.get("use_advanced", "true").lower() == "true"  # Default to true
+    confidence_threshold = float(request.args.get("confidence_threshold", "0.6"))  # Default 0.6
+    use_multi_scale = request.args.get("multi_scale", "true").lower() == "true"  # Multi-scale for complex images
+    temperature = float(request.args.get("temperature", "0.8"))  # Default 0.8 for sharper predictions
 
-    pred = predict_image(model, image_path, postprocess=postprocess)
+    pred = predict_image(
+        model, 
+        image_path, 
+        postprocess=postprocess,
+        use_crf=use_crf,
+        use_advanced=use_advanced,
+        confidence_threshold=confidence_threshold,
+        use_multi_scale=use_multi_scale,
+        temperature=temperature
+    )
     gt   = load_mask(mask_path)
     metrics = compute_per_image_metrics(pred, gt)
     metrics["model"] = model
@@ -219,12 +296,26 @@ def compare_models(filename: str):
     if not mask_path.exists():
         return jsonify({"error": f"Mask not found: {filename}"}), 404
 
-    postprocess = request.args.get("postprocess", "false").lower() == "true"
+    postprocess = request.args.get("postprocess", "true").lower() == "true"  # Default to true
+    use_crf = request.args.get("use_crf", "true").lower() == "true"  # Default to true
+    use_advanced = request.args.get("use_advanced", "true").lower() == "true"  # Default to true
+    confidence_threshold = float(request.args.get("confidence_threshold", "0.6"))  # Default 0.6
+    use_multi_scale = request.args.get("multi_scale", "true").lower() == "true"  # Multi-scale for complex images
+    temperature = float(request.args.get("temperature", "0.8"))  # Default 0.8 for sharper predictions
     gt = load_mask(mask_path)
 
     results = {}
     for model_name in ("unet", "segformer"):
-        pred = predict_image(model_name, image_path, postprocess=postprocess)
+        pred = predict_image(
+            model_name, 
+            image_path, 
+            postprocess=postprocess,
+            use_crf=use_crf,
+            use_advanced=use_advanced,
+            confidence_threshold=confidence_threshold,
+            use_multi_scale=use_multi_scale,
+            temperature=temperature
+        )
         metrics = compute_per_image_metrics(pred, gt)
         metrics["model"] = model_name
         results[model_name] = metrics

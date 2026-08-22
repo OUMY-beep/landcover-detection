@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { apiUrl } from '../lib/config';
 
 interface ImageGalleryProps {
   images: string[];
@@ -55,7 +56,7 @@ export function ImageGallery({
             }`}
           >
             <img
-              src={`http://localhost:5000/api/images/${image}`}
+              src={apiUrl(`/images/${image}`)}
               alt={image}
               className="w-full h-full object-cover"
             />

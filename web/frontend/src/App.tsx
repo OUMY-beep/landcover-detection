@@ -12,12 +12,16 @@ import {
 } from './lib/api';
 import type { ClassInfo } from './types';
 
-type ModelType = 'unet' | 'segformer' | 'compare';
+type ModelType = 'unet' | 'segformer' | 'ensemble' | 'compare';
 
 function App() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedModel, setSelectedModel] = useState<ModelType>('unet');
   const [postprocess, setPostprocess] = useState(false);
+  const [useTTA, setUseTTA] = useState(false);
+  const [useSegEarthVerify, setUseSegEarthVerify] = useState(false);
+  const [useBackgroundVerify, setUseBackgroundVerify] = useState(false);
+  const [useAdvanced, setUseAdvanced] = useState(false);
   const [classes, setClasses] = useState<ClassInfo[]>([]);
 
   const [imageUrl, setImageUrl] = useState<string>('');
@@ -48,7 +52,7 @@ function App() {
     if (selectedFile) {
       processFile(selectedFile);
     }
-  }, [selectedFile, selectedModel, postprocess]);
+  }, [selectedFile, selectedModel, postprocess, useTTA, useSegEarthVerify, useBackgroundVerify, useAdvanced]);
 
   const loadClasses = async () => {
     try {
@@ -70,13 +74,21 @@ function App() {
 
       if (selectedModel === 'compare') {
         const [unetBlob, segformerBlob] = await Promise.all([
-          uploadAndPredict(file, 'unet', postprocess),
-          uploadAndPredict(file, 'segformer', postprocess),
+          uploadAndPredict(file, 'unet', postprocess, useTTA, useAdvanced, useSegEarthVerify, useBackgroundVerify),
+          uploadAndPredict(file, 'segformer', postprocess, useTTA, useAdvanced, useSegEarthVerify, useBackgroundVerify),
         ]);
         setPredictionUrl(trackBlobUrl(URL.createObjectURL(unetBlob)));
         trackBlobUrl(URL.createObjectURL(segformerBlob));
       } else {
-        const predBlob = await uploadAndPredict(file, selectedModel, postprocess);
+        const predBlob = await uploadAndPredict(
+          file,
+          selectedModel,
+          postprocess,
+          useTTA,
+          useAdvanced,
+          useSegEarthVerify,
+          useBackgroundVerify,
+        );
         setPredictionUrl(trackBlobUrl(URL.createObjectURL(predBlob)));
       }
     } catch (error) {
@@ -118,7 +130,18 @@ function App() {
               onSelectFolder={handleSelectFolder}
             />
             <ModelSelector selectedModel={selectedModel} onSelect={setSelectedModel} />
-            <ControlPanel postprocess={postprocess} onTogglePostprocess={() => setPostprocess(!postprocess)} />
+            <ControlPanel
+              postprocess={postprocess}
+              onTogglePostprocess={() => setPostprocess(!postprocess)}
+              useTTA={useTTA}
+              onToggleTTA={() => setUseTTA(!useTTA)}
+              useSegEarthVerify={useSegEarthVerify}
+              onToggleSegEarthVerify={() => setUseSegEarthVerify(!useSegEarthVerify)}
+              useBackgroundVerify={useBackgroundVerify}
+              onToggleBackgroundVerify={() => setUseBackgroundVerify(!useBackgroundVerify)}
+              useAdvanced={useAdvanced}
+              onToggleAdvanced={() => setUseAdvanced(!useAdvanced)}
+            />
           </div>
 
           <div className="lg:col-span-2">
