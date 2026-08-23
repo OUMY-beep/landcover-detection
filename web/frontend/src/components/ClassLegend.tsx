@@ -1,5 +1,7 @@
-import { List } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, ChevronRight, List } from 'lucide-react';
 import type { ClassInfo } from '../types';
+import { translate, translateClassName, type Language } from '../lib/i18n';
 
 const CLASS_COLORS = [
   'rgba(31, 119, 180, 0.7)',
@@ -14,29 +16,46 @@ const CLASS_COLORS = [
 
 interface ClassLegendProps {
   classes: ClassInfo[];
+  compact?: boolean;
+  collapsible?: boolean;
+  language: Language;
 }
 
-export function ClassLegend({ classes }: ClassLegendProps) {
-  return (
-    <div className="bg-white rounded-lg shadow p-4">
-      <div className="flex items-center gap-2 mb-4">
-        <List className="w-5 h-5 text-gray-600" />
-        <h3 className="font-semibold text-gray-800">Classes</h3>
-      </div>
+export function ClassLegend({ classes, compact = false, collapsible = false, language }: ClassLegendProps) {
+  const [isOpen, setIsOpen] = useState(!collapsible);
 
-      <div className="space-y-2">
+  return (
+    <div className="border border-slate-300 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <button
+        type="button"
+        onClick={() => collapsible && setIsOpen(!isOpen)}
+        className={`flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left ${
+          collapsible ? 'cursor-pointer' : 'cursor-default'
+        }`}
+        aria-expanded={collapsible ? isOpen : undefined}
+      >
+        <span className="flex items-center gap-2">
+        <List className="w-5 h-5 text-slate-600 dark:text-slate-300" />
+        <h3 className="font-semibold text-slate-800 dark:text-slate-100">{translate(language, 'landCoverClasses')}</h3>
+        </span>
+        {collapsible && (isOpen ? <ChevronDown className="h-4 w-4 text-slate-500" /> : <ChevronRight className="h-4 w-4 text-slate-500" />)}
+      </button>
+
+      {isOpen && <div className={`border-t border-slate-200 px-2.5 py-2 dark:border-slate-700 ${
+        compact ? 'grid grid-cols-2 gap-x-2 gap-y-1.5' : 'space-y-1.5'
+      }`}>
         {classes.map((cls) => (
-          <div key={cls.id} className="flex items-center gap-3">
+          <div key={cls.id} className="flex min-w-0 items-center gap-1.5">
             <div
-              className="w-6 h-6 rounded border border-gray-300"
+              className="h-4 w-4 shrink-0 rounded-sm border border-gray-300"
               style={{
                 backgroundColor: CLASS_COLORS[cls.id] || '#ccc',
               }}
             />
-            <span className="text-sm text-gray-700">{cls.name}</span>
+            <span className="truncate text-xs leading-tight text-slate-700 dark:text-slate-200">{translateClassName(language, cls.name)}</span>
           </div>
         ))}
-      </div>
+      </div>}
     </div>
   );
 }

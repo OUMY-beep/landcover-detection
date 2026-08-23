@@ -391,13 +391,11 @@ def apply_class_specific_thresholds(
             7: 0.40,  # Agricultural - medium-low threshold
         }
     
-    # Adaptive threshold adjustment based on class frequency
-    # If a class is very rare in the prediction, lower its threshold to help detection
-    # Calculate class frequencies
+    # Adaptive threshold adjustment based on class frequency.  ``probs`` is
+    # HWC at this point, so the class axis is the final one.
     class_frequencies = {}
     for c in range(num_classes):
-        # probs is (C, H, W), so extract class channel correctly
-        class_pixels = np.sum(probs[c, :, :] > 0.1)  # Count pixels with >10% confidence
+        class_pixels = np.sum(probs[:, :, c] > 0.1)  # Count pixels with >10% confidence
         class_frequencies[c] = class_pixels / total_pixels
     
     # Adjust thresholds for rare classes
@@ -413,33 +411,13 @@ def apply_class_specific_thresholds(
     
     class_thresholds = adjusted_thresholds
     
-    refined = np.zeros((h, w), dtype=np.int64)
-    
-    # For each pixel, find the class that meets its threshold with highest confidence
-    for c in range(num_classes):
-        threshold = class_thresholds.get(c, 0.5)
-        class_mask = probs[:, :, c] >= threshold
-        
-        # For pixels where this class meets threshold, assign if it's the best so far
-        class_probs = probs[:, :, c]
-        
-        # Initialize with -infinity for comparison
-        if c == 0:
-            best_probs = np.full((h, w), -np.inf)
-        else:
-            best_probs = refined_probs if 'refined_probs' in locals() else np.full((h, w), -np.inf)
-        
-        # Update where this class is better
-        better_mask = (class_probs > best_probs) & class_mask
-        refined[better_mask] = c
-        
-        if 'refined_probs' not in locals():
-            refined_probs = class_probs.copy()
-        else:
-            refined_probs[better_mask] = class_probs[better_mask]
-    
-    # Assign fallback class to pixels that didn't meet any threshold
-    no_class = (refined == 0)
+    thresholds = np.array(
+        [class_thresholds.get(c, 0.5) for c in range(num_classes)],
+        dtype=probs.dtype,
+    )
+    eligible_probs = np.where(probs >= thresholds.reshape(1, 1, -1), probs, -np.inf)
+    refined = np.argmax(eligible_probs, axis=2).astype(np.int64)
+    no_class = ~np.isfinite(eligible_probs).any(axis=2)
     refined[no_class] = fallback_class
     
     return refined
@@ -1835,6 +1813,78 @@ def predict_with_segearth(
     return seg_pred
 
 
+def predict_open_vocabulary_landcover(
+    image: Image.Image,
+    output_size: tuple[int, int] | None = None,
+) -> np.ndarray | None:
+    """Segment unfamiliar remote-sensing imagery with SegEarth-OV.
+
+    SegEarth-OV is a training-free, open-vocabulary remote-sensing model. Its
+    prompts are mapped into the application's existing eight class IDs; this
+    does not change the viewer palette or any saved model checkpoint.
+    """
+    segearth_pred, _ = _predict_with_segearth_logits(image)
+    if segearth_pred is None:
+        return None
+
+    landcover_pred = _map_segearth_to_landcover(segearth_pred)
+    if output_size is not None and landcover_pred.shape[::-1] != output_size:
+        landcover_pred = _resize_mask(landcover_pred, output_size)
+    return landcover_pred
+
+
+def fuse_segearth_with_segformer(
+    image: Image.Image,
+    segformer_pred: np.ndarray,
+    segformer_probs: np.ndarray,
+    segearth_confidence_threshold: float = 0.80,
+    segformer_confidence_threshold: float = 0.60,
+) -> np.ndarray:
+    """Use SegEarth as a high-confidence second opinion for SegFormer.
+
+    SegFormer retains its detailed boundaries. SegEarth can replace only an
+    uncertain, disagreeing pixel when its open-vocabulary prediction has high
+    confidence and local spatial support. Both models use the application's
+    existing class IDs in the returned mask.
+    """
+    if segformer_probs.ndim != 3 or segformer_probs.shape[1:] != segformer_pred.shape:
+        raise ValueError("segformer_probs must have shape (classes, height, width)")
+
+    segearth_pred, segearth_conf = _predict_with_segearth_logits(image)
+    if segearth_pred is None or segearth_conf is None:
+        return segformer_pred
+
+    output_size = segformer_pred.shape[::-1]
+    segearth_pred = _resize_mask(segearth_pred, output_size)
+    segearth_conf = _resize_mask(
+        (segearth_conf * 255).astype(np.uint8), output_size
+    ).astype(np.float32) / 255.0
+    segearth_labels = _map_segearth_to_landcover(segearth_pred)
+    local_support = _local_support_mask(segearth_labels)
+
+    model_confidence = np.ones_like(segearth_conf, dtype=np.float32)
+    valid = (segformer_pred >= 0) & (segformer_pred < segformer_probs.shape[0])
+    rows, cols = np.where(valid)
+    model_confidence[valid] = segformer_probs[segformer_pred[rows, cols], rows, cols]
+
+    change = (
+        valid
+        & (segearth_labels != segformer_pred)
+        & (segearth_labels != 0)
+        & local_support
+        & (segearth_conf >= segearth_confidence_threshold)
+        & (model_confidence <= segformer_confidence_threshold)
+    )
+    fused = segformer_pred.copy()
+    fused[change] = segearth_labels[change]
+
+    print(
+        "SegFormer + SegEarth fusion: "
+        f"{int(change.sum())}/{segformer_pred.size} uncertain pixels corrected"
+    )
+    return fused
+
+
 def verify_segmentation_with_segearth(
     image: Image.Image,
     segformer_pred: np.ndarray,
@@ -1871,19 +1921,16 @@ def verify_segmentation_with_segearth(
     final_pred = segformer_pred.copy()
     changed = np.zeros_like(segformer_pred, dtype=bool)
 
-    # Safest changes: background/ignore pixels that SegEarth predicts with
-    # good confidence and local agreement.
-    backgroundish = (segformer_pred == 0) | (segformer_pred == 1)
+    # SegEarth uses a different open-vocabulary taxonomy. It is safe only as
+    # a fill-in for the viewer's Ignore pixels, never as an override for a
+    # class that the trained LoveDA model has already selected. In particular,
+    # overwriting Water/Agricultural/Barren/Forest caused the large semantic
+    # changes recorded in the server logs.
+    backgroundish = segformer_pred == 0
     confident = segearth_conf >= SEGEARTH_CONFIDENCE_THRESHOLD
     change_mask = backgroundish & confident & local_support & (segearth_pred_landcover != 0)
     final_pred[change_mask] = segearth_pred_landcover[change_mask]
     changed |= change_mask
-
-    # Only allow non-background corrections when SegEarth is very confident.
-    strong_foreground = (~backgroundish) & confident & local_support & (segearth_pred_landcover != segformer_pred)
-    strong_foreground &= segearth_conf >= 0.93
-    final_pred[strong_foreground] = segearth_pred_landcover[strong_foreground]
-    changed |= strong_foreground
 
     num_corrections = int(changed.sum())
     total_pixels = int(segformer_pred.size)

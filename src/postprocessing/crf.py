@@ -23,6 +23,35 @@ except ImportError:
     print("Warning: pydensecrf not installed. Using fallback CRF implementation.")
     print("Install with: conda install -c conda-forge pydensecrf")
 
+# DenseCRF allocates dense compatibility structures. At 1024x1024 this can
+# exhaust WSL memory and kill the Flask process without a Python traceback.
+MAX_DENSE_CRF_PIXELS = 512 * 512
+
+
+def _as_chw_probabilities(
+    softmax_probs: np.ndarray,
+    num_classes: int,
+    height: int,
+    width: int,
+) -> np.ndarray:
+    """Validate probabilities and return them in DenseCRF's (C, H, W) order."""
+    if softmax_probs.ndim != 3:
+        raise ValueError("softmax_probs must be a three-dimensional probability map")
+
+    if softmax_probs.shape == (num_classes, height, width):
+        probabilities = softmax_probs
+    elif softmax_probs.shape == (height, width, num_classes):
+        probabilities = softmax_probs.transpose(2, 0, 1)
+    else:
+        raise ValueError(
+            "softmax_probs shape must be "
+            f"({num_classes}, {height}, {width}) or ({height}, {width}, {num_classes}); "
+            f"got {softmax_probs.shape}"
+        )
+
+    probabilities = np.clip(probabilities.astype(np.float32, copy=False), 1e-8, 1.0)
+    return probabilities / probabilities.sum(axis=0, keepdims=True)
+
 
 def apply_crf_fallback(
     image: Image.Image,
@@ -47,10 +76,8 @@ def apply_crf_fallback(
     img_array = np.array(image.convert("RGB"))
     h, w = img_array.shape[:2]
     
-    # Ensure softmax_probs has correct shape
-    if len(softmax_probs.shape) == 3:
-        # (C, H, W) -> (H, W, C)
-        softmax_probs = softmax_probs.transpose(1, 2, 0)
+    softmax_probs = _as_chw_probabilities(softmax_probs, num_classes, h, w)
+    softmax_probs = softmax_probs.transpose(1, 2, 0)
     
     # Initial prediction
     pred = np.argmax(softmax_probs, axis=2).astype(np.int64)
@@ -126,15 +153,21 @@ def apply_crf(
     img_array = np.array(image.convert("RGB"))
     h, w = img_array.shape[:2]
     
-    # Ensure softmax_probs has correct shape
-    if len(softmax_probs.shape) == 3:
-        # (C, H, W) -> (H, W, C)
-        softmax_probs = softmax_probs.transpose(1, 2, 0)
+    softmax_probs = _as_chw_probabilities(softmax_probs, num_classes, h, w)
+    if h * w > MAX_DENSE_CRF_PIXELS:
+        print(
+            f"Skipping DenseCRF for {w}x{h} prediction: "
+            f"limit is {MAX_DENSE_CRF_PIXELS} pixels"
+        )
+        return np.argmax(softmax_probs, axis=0).astype(np.int64)
     
     # Create CRF model
     d = dcrf.DenseCRF2D(w, h, num_classes)
     
     # Set unary potentials from softmax
+    # pydensecrf expects channels-first probabilities and returns a unary
+    # energy shaped (classes, height * width). Passing HWC here produced the
+    # previous "Need (8, 1048576), got (1024, 8192)" runtime failure.
     unary = unary_from_softmax(softmax_probs)
     d.setUnaryEnergy(unary)
     

@@ -1,0 +1,390 @@
+% !TeX program = pdflatex
+% Compilation : pdflatex presentation_pfa.tex
+% Présentation Beamer 16:9 -- Projet de Fin d'Année
+
+\documentclass[10pt,aspectratio=169]{beamer}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{lmodern}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc}
+
+\definecolor{PfaBlue}{RGB}{31,95,151}
+\definecolor{PfaDark}{RGB}{28,45,63}
+\definecolor{PfaGreen}{RGB}{44,135,105}
+\definecolor{PfaOrange}{RGB}{220,132,41}
+\definecolor{PfaLight}{RGB}{237,244,249}
+
+\usetheme{default}
+\setbeamercolor{structure}{fg=PfaBlue}
+\setbeamercolor{frametitle}{bg=PfaDark,fg=white}
+\setbeamercolor{title}{fg=PfaDark}
+\setbeamercolor{alerted text}{fg=PfaOrange}
+\setbeamercolor{block title}{bg=PfaBlue,fg=white}
+\setbeamercolor{block body}{bg=PfaLight,fg=black}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}{%
+  \hfill\color{gray}\insertshorttitle\hspace{1em}--\hspace{1em}\insertframenumber/\inserttotalframenumber\hspace{1em}\vspace{0.6em}}
+\setbeamertemplate{itemize items}[circle]
+\setbeamersize{text margin left=0.8cm,text margin right=0.8cm}
+
+\newcommand{\highlight}[1]{\textcolor{PfaBlue}{\textbf{#1}}}
+\newcommand{\placeholder}[2]{%
+  \begin{center}
+    \fcolorbox{PfaBlue}{PfaLight}{\parbox[c][#2][c]{0.82\linewidth}{\centering\color{PfaDark}\textit{#1}}}
+  \end{center}}
+
+\title[Segmentation d'occupation du sol]{Développement d'un système intelligent de segmentation sémantique multi-classes d'images satellitaires}
+\subtitle{Cartographie automatique de l'occupation du sol, post-traitement avancé et corrections manuelles persistantes}
+\author{BOUMAZOUED Oumaima}
+\institute{EMSI Rabat -- Ingénierie en Intelligence Artificielle et Data Science\\Entreprise d'accueil : Geomadev Morocco\\Encadrant : M. MOURCHID Ilyas}
+\date{Année universitaire 2025--2026}
+
+\begin{document}
+
+% -----------------------------------------------------------------------------
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Plan de la présentation}
+  \tableofcontents
+\end{frame}
+
+% -----------------------------------------------------------------------------
+\section{Contexte et objectifs}
+
+\begin{frame}{Contexte}
+  \begin{columns}[T]
+    \column{0.56\textwidth}
+      \begin{itemize}
+        \item Les satellites et drones produisent de grands volumes d'images géographiques.
+        \item Leur interprétation manuelle est lente, coûteuse et subjective.
+        \item Les secteurs de l'urbanisme, de l'agriculture, de l'environnement et de la géomatique ont besoin de cartes fiables et rapides.
+      \end{itemize}
+      \vspace{0.25cm}
+      \begin{block}{Idée centrale}
+        Transformer une image RGB satellitaire ou aérienne en une carte d'occupation du sol exploitable.
+      \end{block}
+    \column{0.40\textwidth}
+      \begin{tikzpicture}[node distance=0.5cm, every node/.style={align=center,font=\small}]
+        \node[draw=PfaBlue,fill=PfaLight,rounded corners,minimum width=3.2cm,minimum height=0.8cm] (img) {Image satellite\\ou drone};
+        \node[draw=PfaGreen,fill=green!8,rounded corners,below=of img,minimum width=3.2cm,minimum height=0.8cm] (ai) {Segmentation\\par IA};
+        \node[draw=PfaOrange,fill=orange!8,rounded corners,below=of ai,minimum width=3.2cm,minimum height=0.8cm] (map) {Carte thématique\\et aide à la décision};
+        \draw[-{Stealth[length=2mm]},thick,PfaBlue] (img) -- (ai);
+        \draw[-{Stealth[length=2mm]},thick,PfaBlue] (ai) -- (map);
+      \end{tikzpicture}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Problématique et réponse proposée}
+  \begin{block}{Problématique}
+    Comment identifier de manière fiable les classes d'occupation du sol dans une image tout en permettant à l'utilisateur de corriger durablement les erreurs de prédiction ?
+  \end{block}
+  \vspace{0.25cm}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+      \textbf{Difficultés observées}
+      \begin{itemize}
+        \item scènes hétérogènes et haute résolution ;
+        \item ambiguïtés visuelles entre eau, forêt, agriculture et sol nu ;
+        \item généralisation limitée à de nouvelles images ;
+        \item modèle figé sans retour utilisateur.
+      \end{itemize}
+    \column{0.48\textwidth}
+      \textbf{Réponse du projet}
+      \begin{itemize}
+        \item SegFormer-B0 comme modèle principal ;
+        \item post-traitement fondé sur probabilités, texture, couleur et contexte spatial ;
+        \item corrections manuelles persistantes, sans réentraînement ;
+        \item plateforme web pour visualiser, corriger et exporter.
+      \end{itemize}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Objectifs}
+  \begin{block}{Objectif principal}
+    Concevoir une plateforme de cartographie automatique de l'occupation du sol à partir d'images satellitaires et aériennes.
+  \end{block}
+  \begin{enumerate}
+    \item Prétraiter les images et assurer une inférence robuste sur des images de grande taille.
+    \item Segmenter chaque pixel en classes d'occupation du sol avec SegFormer-B0.
+    \item Réduire les confusions récurrentes Eau/Forêt/Agriculture/Sol nu, sans modifier les poids du modèle.
+    \item Intégrer une correction manuelle persistante et réappliquée automatiquement.
+    \item Proposer une interface web moderne, accessible aux utilisateurs SIG.
+  \end{enumerate}
+\end{frame}
+
+% -----------------------------------------------------------------------------
+\section{Données et modèle}
+
+\begin{frame}{Jeu de données et classes}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+      \begin{block}{Jeu de données LoveDA}
+        \begin{itemize}
+          \item Images RGB de télédétection haute résolution.
+          \item Contextes urbains et ruraux.
+          \item Masques annotés pour la segmentation sémantique.
+        \end{itemize}
+      \end{block}
+      \vspace{0.2cm}
+      \textbf{Prétraitement}\par
+      Redimensionnement, normalisation ImageNet, transformations cohérentes image/masque et découpage en tuiles avec recouvrement pour les grandes images.
+    \column{0.48\textwidth}
+      \begin{block}{Classes affichées par la plateforme}
+        \small
+        \begin{tabular}{@{}ll@{\qquad}ll@{}}
+          0 & Ignore & 4 & Water \\
+          1 & Background & 5 & Barren \\
+          2 & Building & 6 & Forest \\
+          3 & Road & 7 & Agricultural \\
+        \end{tabular}
+      \end{block}
+      \vspace{0.1cm}
+      \alert{Les identifiants de classes sont conservés tout au long du pipeline.}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Pourquoi SegFormer-B0 ?}
+  \begin{columns}[T]
+    \column{0.53\textwidth}
+      \begin{itemize}
+        \item Architecture Transformer hiérarchique, adaptée aux relations globales dans l'image.
+        \item Fusion de caractéristiques à plusieurs échelles.
+        \item Compromis intéressant entre qualité et coût d'inférence.
+        \item Tête de segmentation adaptée aux 8 sorties du projet.
+      \end{itemize}
+      \vspace{0.25cm}
+      \begin{alertblock}{Choix de production}
+        SegFormer est le modèle par défaut. SegEarth-OV est disponible pour l'imagerie générale ; le mode hybride combine les deux approches.
+      \end{alertblock}
+    \column{0.43\textwidth}
+      \begin{tikzpicture}[every node/.style={align=center,font=\small},node distance=0.35cm]
+        \node[draw=PfaBlue,fill=PfaLight,rounded corners,minimum width=3.5cm] (a) {Image RGB};
+        \node[draw=PfaBlue,fill=PfaLight,rounded corners,below=of a,minimum width=3.5cm] (b) {Encodeur Transformer\\hiérarchique};
+        \node[draw=PfaBlue,fill=PfaLight,rounded corners,below=of b,minimum width=3.5cm] (c) {Décodeur MLP\\multi-échelles};
+        \node[draw=PfaGreen,fill=green!8,rounded corners,below=of c,minimum width=3.5cm] (d) {Masque multi-classes};
+        \draw[-{Stealth[length=2mm]},thick,PfaBlue] (a)--(b);
+        \draw[-{Stealth[length=2mm]},thick,PfaBlue] (b)--(c);
+        \draw[-{Stealth[length=2mm]},thick,PfaBlue] (c)--(d);
+      \end{tikzpicture}
+  \end{columns}
+\end{frame}
+
+% -----------------------------------------------------------------------------
+\section{Architecture et pipeline}
+
+\begin{frame}{Architecture globale de la solution}
+  \centering
+  \begin{tikzpicture}[
+    node distance=0.58cm,
+    box/.style={draw=PfaBlue,rounded corners,fill=PfaLight,minimum height=0.76cm,minimum width=3.1cm,align=center,font=\small},
+    arrow/.style={-{Stealth[length=2mm]},thick,PfaBlue}]
+    \node[box] (user) {Utilisateur};
+    \node[box,below=of user] (ui) {Interface web\\React / TypeScript};
+    \node[box,below=of ui] (api) {API Flask};
+    \node[box,below left=0.85cm and 0.5cm of api] (model) {SegFormer / SegEarth-OV\\Mode hybride};
+    \node[box,below right=0.85cm and 0.5cm of api] (post) {Post-traitement\\et corrections persistantes};
+    \node[box,below=1.05cm of api] (out) {Carte de segmentation\\visualisation et export PNG};
+    \draw[arrow] (user)--(ui);
+    \draw[arrow] (ui)--(api);
+    \draw[arrow] (api)--(model);
+    \draw[arrow] (model)--(post);
+    \draw[arrow] (post)--(out);
+    \draw[arrow] (out.west) -| (ui.west);
+  \end{tikzpicture}
+\end{frame}
+
+\begin{frame}{Pipeline de traitement}
+  \centering
+  \begin{tikzpicture}[
+    node distance=0.18cm,
+    step/.style={draw=PfaBlue,rounded corners,fill=PfaLight,minimum height=0.58cm,minimum width=10.8cm,align=left,font=\small},
+    arrow/.style={-{Stealth[length=1.8mm]},thick,PfaBlue}]
+    \node[step] (s1) {\textbf{1.} Chargement d'une image satellite ou drone};
+    \node[step,below=of s1] (s2) {\textbf{2.} Prétraitement : conversion RGB, normalisation, redimensionnement et tuilage si nécessaire};
+    \node[step,below=of s2] (s3) {\textbf{3.} Inférence : SegFormer, SegEarth-OV ou mode hybride};
+    \node[step,below=of s3] (s4) {\textbf{4.} Raffinement : TTA, calibration, CRF/morphologie et levée des ambiguïtés};
+    \node[step,below=of s4] (s5) {\textbf{5.} Réapplication des corrections déjà enregistrées pour cette image};
+    \node[step,below=of s5] (s6) {\textbf{6.} Visualisation, correction interactive et export du résultat};
+    \foreach \a/\b in {s1/s2,s2/s3,s3/s4,s4/s5,s5/s6} \draw[arrow] (\a)--(\b);
+  \end{tikzpicture}
+\end{frame}
+
+\begin{frame}{Post-traitement avancé : réduire les confusions}
+  \begin{columns}[T]
+    \column{0.50\textwidth}
+      \textbf{Problème ciblé}\par
+      Certaines scènes végétalisées, agricoles ou de sol nu peuvent être prédites comme \highlight{Water}.
+      \vspace{0.2cm}
+      \begin{itemize}
+        \item Calibration prudente des probabilités par classe.
+        \item Comparaison Eau / Forêt / Agriculture / Barren.
+        \item Analyse de texture locale et de couleur.
+        \item Analyse de composantes : parcelles compactes contre rivières et lacs.
+      \end{itemize}
+    \column{0.46\textwidth}
+      \begin{block}{Garde-fous}
+        \begin{itemize}
+          \item Les fortes prédictions d'eau sont conservées.
+          \item Les rivières/canaux et plans d'eau lisses sont protégés.
+          \item Les règles ne changent ni les IDs de classes ni les poids entraînés.
+        \end{itemize}
+      \end{block}
+      \vspace{0.15cm}
+      \alert{Objectif : améliorer les masques sans réentraîner le modèle.}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Corrections manuelles persistantes}
+  \begin{columns}[T]
+    \column{0.52\textwidth}
+      \begin{enumerate}
+        \item L'utilisateur choisit la classe correcte.
+        \item Il corrige la zone avec un \highlight{point}, un \highlight{pinceau} ou un \highlight{rectangle}.
+        \item La correction est enregistrée avec l'empreinte SHA-256 du contenu de l'image.
+        \item Lors d'une future analyse de la même image, elle est réappliquée automatiquement.
+      \end{enumerate}
+      \vspace{0.2cm}
+      \begin{alertblock}{Bénéfice}
+        Une boucle d'amélioration continue, sans fine-tuning et sans altérer les poids du modèle.
+      \end{alertblock}
+    \column{0.42\textwidth}
+      \begin{tikzpicture}[node distance=0.45cm,every node/.style={align=center,font=\small}]
+        \node[draw=PfaBlue,fill=PfaLight,rounded corners,minimum width=3.4cm] (a) {Prédiction};
+        \node[draw=PfaOrange,fill=orange!10,rounded corners,below=of a,minimum width=3.4cm] (b) {Correction utilisateur};
+        \node[draw=PfaGreen,fill=green!8,rounded corners,below=of b,minimum width=3.4cm] (c) {Stockage SHA-256};
+        \node[draw=PfaBlue,fill=PfaLight,rounded corners,below=of c,minimum width=3.4cm] (d) {Réapplication automatique};
+        \draw[-{Stealth[length=2mm]},thick,PfaBlue] (a)--(b);
+        \draw[-{Stealth[length=2mm]},thick,PfaBlue] (b)--(c);
+        \draw[-{Stealth[length=2mm]},thick,PfaBlue] (c)--(d);
+      \end{tikzpicture}
+  \end{columns}
+\end{frame}
+
+% -----------------------------------------------------------------------------
+\section{Plateforme applicative}
+
+\begin{frame}{Plateforme web développée}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+      \textbf{Frontend React / TypeScript}
+      \begin{itemize}
+        \item chargement d'une image ou d'un dossier ;
+        \item sélection du mode de segmentation ;
+        \item carte de segmentation et superposition ;
+        \item plein écran, mode sombre et interface bilingue FR/EN ;
+        \item outils de correction accessibles dans la vue détaillée.
+      \end{itemize}
+    \column{0.48\textwidth}
+      \textbf{Backend Flask / Python}
+      \begin{itemize}
+        \item chargement et cache des modèles ;
+        \item inférence, tuilage et post-traitement ;
+        \item API de prévisualisation, prédiction et correction ;
+        \item stockage sûr des corrections ;
+        \item génération de l'export PNG.
+      \end{itemize}
+  \end{columns}
+  \vspace{0.25cm}
+  \placeholder{Insérer ici une capture de l'interface : image originale + masque de segmentation + panneau de correction.}{2.0cm}
+\end{frame}
+
+\begin{frame}{Parcours utilisateur et export}
+  \centering
+  \begin{tikzpicture}[
+    node distance=0.3cm,
+    box/.style={draw=PfaBlue,rounded corners,fill=PfaLight,minimum height=0.85cm,minimum width=2.55cm,align=center,font=\small},
+    arrow/.style={-{Stealth[length=2mm]},thick,PfaBlue}]
+    \node[box] (a) {Choisir\\l'image};
+    \node[box,right=of a] (b) {Choisir le\\mode d'analyse};
+    \node[box,right=of b] (c) {Visualiser et\\corriger};
+    \node[box,right=of c] (d) {Exporter\\le PNG};
+    \draw[arrow] (a)--(b);
+    \draw[arrow] (b)--(c);
+    \draw[arrow] (c)--(d);
+  \end{tikzpicture}
+  \vspace{0.55cm}
+  \begin{block}{Export implémenté}
+    L'export ouvre le dialogue \emph{Enregistrer sous} du navigateur compatible (Chrome/Edge) : l'utilisateur choisit le dossier et le nom du fichier avant la sauvegarde de l'image PNG.
+  \end{block}
+  \small \textcolor{gray}{Les exports SIG vectoriels ou GeoTIFF constituent une évolution à finaliser dans l'implémentation actuelle.}
+\end{frame}
+
+% -----------------------------------------------------------------------------
+\section{Évaluation et conclusion}
+
+\begin{frame}{Évaluation : critères retenus}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+      \begin{block}{Qualité de segmentation}
+        \begin{itemize}
+          \item Pixel Accuracy ;
+          \item Precision, Recall et F1-score ;
+          \item IoU par classe et mIoU ;
+          \item Dice score.
+        \end{itemize}
+      \end{block}
+    \column{0.48\textwidth}
+      \begin{block}{Qualité opérationnelle}
+        \begin{itemize}
+          \item réduction des confusions Eau/Forêt/Agriculture/Barren ;
+          \item robustesse CRF/TTA et tuilage ;
+          \item temps d'inférence ;
+          \item utilité des corrections persistantes.
+        \end{itemize}
+      \end{block}
+  \end{columns}
+  \vspace{0.25cm}
+  \begin{alertblock}{À compléter avant la soutenance}
+    Ajouter ici les valeurs mesurées : \texttt{Pixel Accuracy = ...}, \texttt{mIoU = ...}, temps moyen par image et comparaison avant/après post-traitement.
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}{Apports du projet}
+  \begin{enumerate}
+    \item Une chaîne complète, de l'image brute au masque exportable.
+    \item Un modèle Transformer de production complété par des modes plus génériques.
+    \item Un post-traitement explicable pour les classes visuellement ambiguës.
+    \item Des corrections manuelles persistantes : l'outil mémorise l'expertise utilisateur.
+    \item Une plateforme web orientée SIG, utilisable sans dépendre exclusivement d'un logiciel externe.
+  \end{enumerate}
+  \vspace{0.25cm}
+  \begin{block}{Valeur ajoutée}
+    Le projet dépasse une simple démonstration de modèle : il propose un outil de cartographie semi-supervisé, maintenable et évolutif.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Perspectives}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+      \begin{itemize}
+        \item Ajouter des exports GeoTIFF, GeoJSON et Shapefile réels.
+        \item Exploiter des bandes multispectrales et indices comme NDVI/NDWI.
+        \item Étendre les classes et les jeux de données.
+      \end{itemize}
+    \column{0.48\textwidth}
+      \begin{itemize}
+        \item Détection de changements à partir de séries temporelles.
+        \item Optimiser l'inférence GPU et le déploiement cloud.
+        \item Exploiter les corrections validées pour une future stratégie de fine-tuning contrôlé.
+      \end{itemize}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Conclusion}
+  \begin{block}{Conclusion}
+    La solution développée associe SegFormer, post-traitement avancé et correction manuelle persistante pour améliorer la cartographie automatique de l'occupation du sol à partir d'images satellitaires et aériennes.
+  \end{block}
+  \vfill
+  \centering
+  {\Large\color{PfaDark}\textbf{Merci pour votre attention}}\\[0.35cm]
+  \large Questions ?
+\end{frame}
+
+\end{document}

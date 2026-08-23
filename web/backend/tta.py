@@ -26,7 +26,19 @@ class TestTimeAugmentation:
         use_flip: bool = True,
         use_rotate: bool = True,
     ) -> np.ndarray:
-        from inference import prepare_image_tensor
+        from inference import IMAGE_SIZE, predict_large_image_with_tiles, prepare_image_tensor
+
+        # TTA otherwise first reduces a whole scene to one model input.  That
+        # loses the canopy detail needed to distinguish forest from water in
+        # the large GeoTIFFs used by this project.  Tiled probabilities retain
+        # that detail; geometric TTA is intentionally skipped in this case.
+        if max(img.size) > 2 * max(IMAGE_SIZE):
+            image_extent = max(img.size)
+            grid_size = 4 if image_extent > 8 * max(IMAGE_SIZE) else 3 if image_extent > 4 * max(IMAGE_SIZE) else 2
+            global_weight = 0.15 if grid_size >= 4 else 0.25
+            return predict_large_image_with_tiles(
+                self.model, img, grid_size=grid_size, global_weight=global_weight
+            )
 
         image_tensor = prepare_image_tensor(img).to(self.device)
         variants = [(image_tensor, lambda x: x)]
@@ -60,8 +72,19 @@ class TestTimeAugmentation:
         use_color_jitter: bool = True,
     ) -> np.ndarray:
         """Advanced TTA with additional augmentations including scaling and color."""
-        from inference import prepare_image_tensor
+        from inference import IMAGE_SIZE, predict_large_image_with_tiles, prepare_image_tensor
         from torchvision.transforms import functional as TF
+
+        # Keep the same large-scene behavior as normal TTA.  Applying colour
+        # and geometric variants to an already downsampled 9k GeoTIFF cannot
+        # recover the canopy texture that tiling preserves.
+        if max(img.size) > 2 * max(IMAGE_SIZE):
+            image_extent = max(img.size)
+            grid_size = 4 if image_extent > 8 * max(IMAGE_SIZE) else 3 if image_extent > 4 * max(IMAGE_SIZE) else 2
+            global_weight = 0.15 if grid_size >= 4 else 0.25
+            return predict_large_image_with_tiles(
+                self.model, img, grid_size=grid_size, global_weight=global_weight
+            )
         
         image_tensor = prepare_image_tensor(img).to(self.device)
         variants = [(image_tensor, lambda x: x)]
@@ -121,74 +144,4 @@ class TestTimeAugmentation:
         probabilities = self.predict_proba_with_tta(img)
         if probabilities.shape[0] != num_classes:
             raise ValueError(f"Expected {num_classes} classes, got {probabilities.shape[0]}")
-        return np.argmax(probabilities, axis=0).astype(np.int64)
-
-
-def ensemble_models(
-    models: list[torch.nn.Module],
-    img: Image.Image,
-    device: torch.device,
-    weights: list[float] | None = None,
-    use_tta: bool = False,
-    use_advanced_tta: bool = False,
-    voting_method: str = "soft",  # "soft", "hard", or "weighted"
-) -> np.ndarray:
-    """Advanced ensemble with multiple voting methods."""
-    if not models:
-        raise ValueError("At least one model is required")
-    if weights is None:
-        weights = [1.0 / len(models)] * len(models)
-    if len(weights) != len(models) or not np.isclose(sum(weights), 1.0):
-        raise ValueError("Weights must match models and sum to 1")
-
-    if use_advanced_tta:
-        model_probs = [TestTimeAugmentation(model, device).predict_proba_with_tta_advanced(img) for model in models]
-    elif use_tta:
-        model_probs = [TestTimeAugmentation(model, device).predict_proba_with_tta(img) for model in models]
-    else:
-        from inference import prepare_image_tensor
-        image_tensor = prepare_image_tensor(img).to(device)
-        model_probs = []
-        with torch.no_grad():
-            for model in models:
-                model.eval()
-                model_probs.append(torch.softmax(model(image_tensor), dim=1).squeeze(0).cpu().numpy())
-
-    if voting_method == "soft":
-        # Soft voting - weighted average of probabilities
-        probabilities = sum(weight * probs for weight, probs in zip(weights, model_probs))
-        return np.argmax(probabilities, axis=0).astype(np.int64)
-    
-    elif voting_method == "hard":
-        # Hard voting - majority vote from predictions
-        predictions = [np.argmax(probs, axis=0) for probs in model_probs]
-        
-        # Weighted voting
-        h, w = predictions[0].shape
-        weighted_votes = np.zeros((h, w, 8), dtype=np.float32)  # 8 classes
-        
-        for pred, weight in zip(predictions, weights):
-            for c in range(8):
-                weighted_votes[:, :, c] += (pred == c).astype(np.float32) * weight
-        
-        return np.argmax(weighted_votes, axis=2).astype(np.int64)
-    
-    elif voting_method == "weighted":
-        # Hybrid approach - use probabilities but with class-specific weighting
-        # Give more weight to classes that are typically hard to classify
-        class_weights = np.array([1.0, 1.2, 1.5, 1.3, 1.4, 1.1, 1.2, 1.1])  # Higher for building, road, water
-        
-        weighted_probs = []
-        for probs, model_weight in zip(model_probs, weights):
-            # Apply class-specific weights
-            weighted = probs * class_weights[np.newaxis, :, :]
-            weighted = weighted / weighted.sum(axis=0, keepdims=True)  # Renormalize
-            weighted_probs.append(weighted * model_weight)
-        
-        final_probs = sum(weighted_probs)
-        return np.argmax(final_probs, axis=0).astype(np.int64)
-    
-    else:
-        # Default to soft voting
-        probabilities = sum(weight * probs for weight, probs in zip(weights, model_probs))
         return np.argmax(probabilities, axis=0).astype(np.int64)
